@@ -1,0 +1,190 @@
+// ESSE CODIGO É A PROGRAMAÇÃO FINAL O QUAL CHEGAMOS EM NOSSO PROJETO, EXISTE MUITA A COISA A SER MELHORADA E SER ACRESENTADA COMO, MELHORAR O TEMPO DE RESPOSTA DA PROGRAMAÇÃO
+// POR MEIO DA OTIMIZAÇÃO, ACRESCENTAR O SENSOR DE CORRENTE E TENSÃO DC QUE NÃO ESTÃO PRESENTES NESSA PROGRAMAÇÃO. PARA AQUELE QUE DESEJA ENTENDER MELHOR RECOMENDO PRIMEIRO 
+// TESTAR INDIVIDUALMENTE A PROGRAMAÇÕES DE CADA SENSOR, POIS DESSA FORMA VOCÊ VAI ENTENDER MELHOR DO FUNCIONAMENTO DELES, E RECOMENDO QUE VEJA PARA ENTENDER MELHOR OS SENSORES DE FLUXO E RPM
+//POIS SÃO ELES QUE CAUSAM OS MAIORES PROBELMAS PROCURAR SOBRE O attachInterrupt E O detachInterrupt POIS ELES SÓ FUNCIONAM NÓS PINOS 3 E 2 DO ARDUINO UNO, ENTÃO ESSE CÓDIGO É CHEIO DE PECUALIARIEDADES
+
+//SENSORES DE CORRENTE E TENSÃO
+#include "EmonLib.h"    //AQUI INCLUE A BIBLIOTEMA RESPONSAVEL POR TER AS FUNÇÕES JÁ PRONTAS DO SENSOR DE CORRENTE E TENSÃO
+EnergyMonitor emon1;     //CRIA UMA ESTTANCIA QUE É NECESSARIA PARA OS SENSORES DE CORRENTE E TENSÃO
+
+//SENSOR DE CORRENTE
+#define calib_corrente 20.60
+const int pino_corrente = A1;
+float ruido_corrente = 0.20;
+double valor_corrente;
+  
+//SENSOR DE TENSÃO
+#define calib_tensao 820.0
+const int pino_tensao = A2;
+float ruido_tensao = 14.00;
+double valor_tensao;
+
+//PARTE DO SENSOR DE RPM
+#define pino_D0 3
+
+//Variaveis do sensor
+
+int rpm;
+volatile byte pulsos;
+unsigned long timeold;
+
+//COLOQUE O VALOR DE FUROS DO ENCODER
+unsigned int pulsos_por_volta=20;
+
+//FUNÇÃO RESPONSAVEL DO CONTADOR DO SENSOR DE RPM
+void contador()
+  {
+  //aumenta o valor do puslos
+  pulsos++;
+  }
+
+//PARTE DO SENSOR DE FLUXO
+#define pino_fluxo 2
+
+int pino_vazao = 2; //Variável para a quantidade de pulsos
+double vazao;
+volatile int contador_fluxo;
+
+//PARTE DO CONTROLE DA BOMBA DE ÁGUA
+#define pino_bomba 5
+int velocidade; 
+
+
+void setup() 
+{
+  
+  //INICIA O SERIAL
+  Serial.begin(9600);
+
+  //PARTE DO SENSOR DE CORRENTE E TENSÃO
+  
+  
+  emon1.voltage(pino_tensao, calib_tensao, 1.7);  // TENSÃO: (PINO DE SAIDA, VALOR DE CALIBRAÇÃO, "PHASE SHIFT")
+  emon1.current(pino_corrente, calib_corrente);       // CORRENTE: (PINO DE SAIDA, VALOR DE CALIBRAÇÃO)
+
+  //PARTE DO SENSOR DE RPM
+
+  pinMode(pino_D0, INPUT);
+  pulsos = 0;
+  rpm = 0;
+  timeold = 0;
+
+  //PARTE DO SENSOR DE FLUXO
+  pinMode(pino_fluxo,INPUT);
+
+  //PARTE DO CONTROLE DA BOMBA
+  pinMode(pino_bomba, OUTPUT);
+  
+} 
+
+void loop() 
+{
+  //FUNÇÃO RESPONSAVEL POR MODIFICAR O VALOR DA BOMBA
+  bombControl();
+
+  //PUXA A FUNÇÃO QUE RESPONSAVEL POR LER O VALOR DE TENSÃO E CORRENTE AC
+  readVoltageCurrent();
+  
+  //PUXA A FUNÇÃO QUE RESPONSAVEL POR LER O VALOR DE RPM
+  readRPM();
+
+  //PUXA A FUNÇÃO QUE RESPONSAVEL POR LER O VALOR DE VAZÃO
+  readVAZAO();
+
+  Serial.print("CORRENTE:");
+  Serial.print(valor_corrente);
+  Serial.print("A | ");
+  Serial.print("TENSÃO:");
+  Serial.print(valor_tensao, 0);
+  Serial.print("V | ");
+  Serial.print("ROTAÇÃO:");
+  Serial.print(rpm, DEC);
+  Serial.print("RPM | ");
+  Serial.print("VAZÃO:");
+  Serial.print(vazao);
+  Serial.println(" l/min");
+  
+
+}
+
+  void bombControl()
+  {
+    
+    if(Serial.available()>0)
+    {
+    velocidade = Serial.read();
+    analogWrite(pino_bomba, velocidade);
+    }
+    else
+    {
+      analogWrite(pino_bomba, 0);
+    }
+  }
+
+//FUNÇÃO QUE É CHAMA PARA LER O VALOR DA DE TENSÃO E CORRENTE DOS SENSORES AC
+  void readVoltageCurrent()
+  {
+
+  valor_corrente = 0;
+  valor_tensao =0;
+  float media_corrente = 0;
+  float media_tensao = 0;
+
+  for(int i = 0; i<5; i++)
+  { 
+  emon1.calcVI(17,100);         // Calculate all. No.of half wavelengths (crossings), time-out
+  
+  valor_corrente = emon1.Irms;
+  valor_tensao = emon1.Vrms;
+  media_tensao = (media_tensao + valor_tensao);
+  media_corrente = (media_corrente + valor_corrente);
+  }
+
+  valor_tensao = ((media_tensao/5)-ruido_tensao);
+  valor_corrente = ((media_corrente/5)-ruido_corrente);
+  if(valor_tensao <= 0)
+  {
+    valor_tensao = 0;
+  }
+  
+  if(valor_corrente <= 0)
+  {
+    
+    valor_corrente = 0;
+  }
+ 
+  }
+
+  void readRPM()
+  {
+  
+  attachInterrupt(digitalPinToInterrupt(pino_D0), contador, FALLING); //habilita o funcionamento da interrupção relacionada ao sensor de RPM para ser usado na função do RPM
+  delay(1000);
+  detachInterrupt(digitalPinToInterrupt(pino_D0)); //desabilita o funcionamento da interrupção relaciocada ao sensor de RPM
+  rpm = (pulsos*3);
+  pulsos = 0;
+
+  
+  }
+
+
+  void readVAZAO()
+  {
+  contador_fluxo = 0;
+  attachInterrupt(digitalPinToInterrupt(pino_fluxo),incpulso,RISING); //configura uma função de interrupção ligada ao pino_fluxo
+  delay(1000);
+  //É NA PARTE DE DESABILITAR A INTERRUPÇÃO QUE O PROGRAMA TRAVA.
+  detachInterrupt(digitalPinToInterrupt(pino_fluxo)); //desabilita o funcionamento da interrupção relaciocada ao sensor de RPM
+
+  //Cálculos matemáticos
+  vazao = (contador_fluxo * 2.25);        //Conta os pulsos no último segundo e multiplica por 2,25mL, que é a vazão de cada pulso
+  vazao = vazao * 60;         //Converte segundos em minutos, tornando a unidade de medida mL/min
+  vazao = vazao / 1000;       //Converte mL em litros, tornando a unidade de medida L/min
+
+  }
+
+
+void incpulso()
+  {
+  contador_fluxo++; //Incrementa a variável de pulsos
+  }
