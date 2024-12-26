@@ -1,0 +1,49 @@
+#define pino_D0 3
+#define analog 6
+
+//Variaveis do sensor
+
+int rpm;
+volatile byte pulsos;
+unsigned long timeold;
+
+//COLOQUE O VALOR DE FUROS DO ENCODER
+unsigned int pulsos_por_volta=20;
+
+void contador()
+{
+  //aumenta o valor do puslos
+  pulsos++;
+}
+
+void setup()
+{
+  Serial.begin(9600);
+  
+  pinMode(pino_D0, INPUT);
+  pinMode(analog, INPUT);
+
+  //chamaremos o contador a cada borda de descida do sensor
+  attachInterrupt(1, contador, FALLING);
+  
+  pulsos = 0;
+  rpm = 0;
+  timeold = 0;
+}
+
+void loop()
+{
+if(millis() - timeold >=1000)
+{
+  //desabilita a interrupção durante o cálculo
+  detachInterrupt(1);
+  rpm=(60 * 1000 /pulsos_por_volta) / (millis() - timeold) *pulsos;
+  timeold = millis();
+  pulsos = 0;
+
+  Serial.print("RPM=");
+  Serial.println(rpm, DEC);
+
+  attachInterrupt(1, contador, FALLING);
+}
+}
